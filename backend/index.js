@@ -1,37 +1,54 @@
 const express = require('express');
 const mysql = require('mysql');
 const bodyParser = require('body-parser');
-const cors = require('cors');
+const cors = require('cors'); // Importa el módulo CORS
 
 const app = express();
-app.use(cors());
+const port = 3000;
+
+app.use(cors()); // Habilita CORS
 app.use(bodyParser.json());
 
-const db = mysql.createConnection({
-  host: '127.0.0.1', // o la IP del servidor MySQL
-  user: 'root',
-  //password: 'tu_contraseña',
-  database: 'BANCA_MOVIL'
+const connection = mysql.createConnection({
+    host: '127.0.0.1',
+    user: 'root',
+    //password: 'tu_contraseña', // Asegúrate de descomentar y proporcionar la contraseña correcta
+    database: 'BANCA_MOVIL'
 });
 
-db.connect((err) => {
+connection.connect(err => {
   if (err) {
-    console.error('Error conectando a MySQL:', err);
+    console.error('Error conectando a la base de datos: ', err.stack);
     return;
   }
-  console.log('Conectado a MySQL');
+  console.log('Conectado a la base de datos como id ' + connection.threadId);
 });
 
-app.get('/datos', (req, res) => {
-  db.query('SELECT * FROM usuarios', (err, results) => {
+app.get('/usuarios', (req, res) => {
+  console.log('Solicitud GET /usuarios recibida'); // Mensaje de depuración
+  connection.query('SELECT * FROM usuarios', (err, results) => {
     if (err) {
-      res.status(500).send(err);
-    } else {
-      res.json(results);
+      console.error('Error en la consulta a la base de datos:', err); // Mensaje de depuración
+      return res.status(500).send(err);
     }
+    console.log('Resultados de la consulta:', results); // Mensaje de depuración
+    res.json(results);
   });
 });
 
-app.listen(3000, () => {
-  console.log('Servidor corriendo en el puerto 3000');
+app.get('/transacciones', (req, res) => {
+  console.log('Solicitud GET /transacciones recibida'); // Mensaje de depuración
+  connection.query('SELECT * FROM transacciones', (err, results) => {
+    if (err) {
+      console.error('Error en la consulta a la base de datos:', err); // Mensaje de depuración
+      return res.status(500).send(err);
+    }
+    console.log('Resultados de la consulta:', results); // Mensaje de depuración
+    res.json(results);
+  });
 });
+
+app.listen(port, () => {
+  console.log(`Servidor corriendo en http://localhost:${port}`);
+});
+
