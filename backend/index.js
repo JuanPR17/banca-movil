@@ -86,6 +86,58 @@ app.post('/register', async (req, res) => {
   }
 });
 
+// Ruta para verificar el saldo del usuario
+app.post('/check-balance', async (req, res) => {
+  const { userId, amount } = req.body;
+
+  try {
+    const [[{ total }]] = await db.query(`
+      SELECT SUM(monto) AS total 
+      FROM transacciones 
+      WHERE usuario_id = ?
+    `, [userId]);
+
+    if (total >= amount) {
+      res.json({ success: true });
+    } else {
+      res.json({ success: false, message: 'Fondos insuficientes' });
+    }
+  } catch (error) {
+    console.error('Error al verificar el saldo:', error);
+    res.status(500).json({ success: false, message: 'Error al verificar el saldo' });
+  }
+});
+
+app.post('/transfer', async (req, res) => {
+  const { senderId, receiverId, amount } = req.body;
+
+  try {
+    const [[{ total }]] = await db.query(`
+      SELECT SUM(monto) AS total 
+      FROM transacciones 
+      WHERE usuario_id = ?
+    `, [senderId]);
+
+    if (total < amount) {
+      return res.json({ success: false, message: 'Fondos insuficientes' });
+    }
+
+    await db.query(`
+      INSERT INTO transacciones (monto, usuario_id) VALUES (?, ?)
+    `, [-amount, senderId]); // Se resta del remitente
+
+    await db.query(`
+      INSERT INTO transacciones (monto, usuario_id) VALUES (?, ?)
+    `, [amount, receiverId]); // Se suma al receptor
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Error al realizar la transferencia' });
+  }
+});
+
+
 app.listen(port, () => {
   console.log(`Servidor corriendo en http://localhost:${port}`);
 });
