@@ -61,6 +61,7 @@ app.post('/login', (req, res) => {
   });
 });
 
+
 // Ruta para registrar un nuevo usuario
 app.post('/register', async (req, res) => {
   const { nombreUsuario, correo, contrasena } = req.body;
@@ -86,16 +87,17 @@ app.post('/register', async (req, res) => {
   }
 });
 
-// Ruta para verificar el saldo del usuario
 app.post('/check-balance', async (req, res) => {
   const { userId, amount } = req.body;
 
   try {
-    const [[{ total }]] = await db.query(`
+    const [rows] = await db.query(`
       SELECT SUM(monto) AS total 
       FROM transacciones 
       WHERE usuario_id = ?
     `, [userId]);
+
+    const total = rows[0]?.total || 0;
 
     if (total >= amount) {
       res.json({ success: true });
@@ -109,26 +111,26 @@ app.post('/check-balance', async (req, res) => {
 });
 
 app.post('/transfer', async (req, res) => {
-  const { senderId, receiverId, amount } = req.body;
+  const { senderEmail, receiverEmail, amount } = req.body;
 
   try {
     const [[{ total }]] = await db.query(`
       SELECT SUM(monto) AS total 
       FROM transacciones 
-      WHERE usuario_id = ?
-    `, [senderId]);
+      WHERE usuario_id = (SELECT id FROM usuarios WHERE email = ?)
+    `, [senderEmail]);
 
     if (total < amount) {
       return res.json({ success: false, message: 'Fondos insuficientes' });
     }
 
     await db.query(`
-      INSERT INTO transacciones (monto, usuario_id) VALUES (?, ?)
-    `, [-amount, senderId]); // Se resta del remitente
+      INSERT INTO transacciones (monto, usuario_id, email_id) VALUES (?, (SELECT id FROM usuarios WHERE email = ?), ?)
+    `, [-amount, senderEmail, senderEmail]); // Se resta del remitente
 
     await db.query(`
-      INSERT INTO transacciones (monto, usuario_id) VALUES (?, ?)
-    `, [amount, receiverId]); // Se suma al receptor
+      INSERT INTO transacciones (monto, usuario_id, email_id) VALUES (?, (SELECT id FROM usuarios WHERE email = ?), ?)
+    `, [amount, receiverEmail, receiverEmail]); // Se suma al receptor
 
     res.json({ success: true });
   } catch (error) {
