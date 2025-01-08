@@ -87,17 +87,16 @@ app.post('/register', async (req, res) => {
   }
 });
 
+// Ruta para verificar el saldo del usuario
 app.post('/check-balance', async (req, res) => {
   const { userId, amount } = req.body;
 
   try {
-    const [rows] = await db.query(`
+    const total  = await connection.query(`
       SELECT SUM(monto) AS total 
       FROM transacciones 
       WHERE usuario_id = ?
     `, [userId]);
-
-    const total = rows[0]?.total || 0;
 
     if (total >= amount) {
       res.json({ success: true });
@@ -110,32 +109,72 @@ app.post('/check-balance', async (req, res) => {
   }
 });
 
+// Endpoint para realizar una transferencia
 app.post('/transfer', async (req, res) => {
   const { senderEmail, receiverEmail, amount } = req.body;
 
   try {
-    const [[{ total }]] = await db.query(`
-      SELECT SUM(monto) AS total 
-      FROM transacciones 
-      WHERE usuario_id = (SELECT id FROM usuarios WHERE email = ?)
-    `, [senderEmail]);
+    const conn = await connection.getConnection(); // Obtener una conexión de la pool
 
-    if (total < amount) {
-      return res.json({ success: false, message: 'Fondos insuficientes' });
+    try {
+      // Obtener el ID del remitente
+      const [senderRows] = await conn.query('SELECT id FROM usuarios WHERE email = ?', [senderEmail]);
+
+      if (senderRows.length === 0) {
+        conn.release(); // Liberar la conexión si se encuentra un error.
+        return res.status(404).json({ success: false, message: 'Usuario remitente no encontrado' });
+      }
+
+      const senderId = senderRows[0].id;
+
+      // Obtener el ID del receptor
+      const [receiverRows] = await conn.query('SELECT id FROM usuarios WHERE email = ?', [receiverEmail]);
+
+      if (receiverRows.length === 0) {
+        conn.release(); // Liberar la conexión si se encuentra un error.
+        return res.status(404).json({ success: false, message: 'Usuario receptor no encontrado' });
+      }
+
+      const receiverId = receiverRows[0].id;
+
+      // Verificar si el remitente tiene suficientes fondos
+      const [[{ total }]] = await conn.query('SELECT SUM(monto) AS total FROM transacciones WHERE usuario_id = ?', [senderId]);
+
+      if (total < amount) {
+        conn.release(); // Liberar la conexión si se encuentra un error.
+        return res.json({ success: false, message: 'Fondos insuficientes' });
+      }
+
+      // Comenzar la transacción
+      await conn.beginTransaction();
+
+      try {
+        // Restar el monto del remitente
+        await conn.query('INSERT INTO transacciones (monto, usuario_id, email_id) VALUES (?, ?, ?)', [-amount, senderId, senderEmail]);
+
+        // Sumar el monto al receptor
+        await conn.query('INSERT INTO transacciones (monto, usuario_id, email_id) VALUES (?, ?, ?)', [amount, receiverId, receiverEmail]);
+
+        // Confirmar la transacción
+        await conn.commit();
+
+        res.json({ success: true });
+      } catch (error) {
+        // Revertir la transacción en caso de error
+        await conn.rollback();
+        console.error('Error en la transacción:', error);
+        res.status(500).json({ success: false, message: 'Error al realizar la transferencia' });
+      } finally {
+        conn.release(); // Liberar la conexión después de usarla.
+      }
+    } catch (error) {
+      conn.release(); // Asegurarse de liberar la conexión en caso de error.
+      console.error('Error al verificar el saldo:', error);
+      res.status(500).json({ success: false, message: 'Error al verificar el saldo' });
     }
-
-    await db.query(`
-      INSERT INTO transacciones (monto, usuario_id, email_id) VALUES (?, (SELECT id FROM usuarios WHERE email = ?), ?)
-    `, [-amount, senderEmail, senderEmail]); // Se resta del remitente
-
-    await db.query(`
-      INSERT INTO transacciones (monto, usuario_id, email_id) VALUES (?, (SELECT id FROM usuarios WHERE email = ?), ?)
-    `, [amount, receiverEmail, receiverEmail]); // Se suma al receptor
-
-    res.json({ success: true });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ success: false, message: 'Error al realizar la transferencia' });
+    console.error('Error al obtener conexión a la base de datos:', error);
+    res.status(500).json({ success: false, message: 'Error al obtener conexión a la base de datos' });
   }
 });
 
